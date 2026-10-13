@@ -1,3 +1,4 @@
+import { parseHTML } from "linkedom";
 import type { Composition } from "@hypit/composition";
 import { assertHtmlProgram, compileHtmlProgram, materializeHtmlProgram } from "@hypit/html-program";
 import type { HtmlProgram, ResourceUrlResolver } from "@hypit/html-program";
@@ -75,7 +76,14 @@ export function materializeHtmlDocument(document: HtmlDocument, resolve: Resourc
   assertHtmlDocument(document);
   const program = boundProgram(document), audio = document.audio;
   const materials = new Map(document.bindings.map(binding => [binding.id, binding.artifact]));
-  const html = renderDocumentProgram(program, audio, artifact => resolve(materials.get(artifact.resource) ?? artifact)).preview;
+  const rendered = renderDocumentProgram(program, audio, artifact => resolve(materials.get(artifact.resource) ?? artifact)).preview;
+  const { document: page } = parseHTML(rendered);
+  const scripts = Array.from(page.querySelectorAll("script")).map(script => {
+    const source = script.textContent ?? "";
+    script.remove();
+    return source;
+  });
+  const html = page.toString();
   const settings = JSON.stringify({ autoplay: options.autoplay ?? true, loop: options.loop ?? true, muted: options.muted ?? true, responsive: options.responsive ?? true });
   const driver = `<script>
 (() => {
@@ -139,6 +147,7 @@ export function materializeHtmlDocument(document: HtmlDocument, resolve: Resourc
     try {
       await document.fonts.ready;
       await new Promise(requestAnimationFrame);
+      ${scripts.join("\n")}
       await window.__hypitFrameProgram.prepare();
       await window.__hypitFrameReady;
       await window.__hypitSetMuted(options.muted);

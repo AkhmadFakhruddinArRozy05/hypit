@@ -1292,6 +1292,9 @@ importers:
       '@hypit/timeline':
         specifier: workspace:^0.1.0
         version: link:../timeline
+      linkedom:
+        specifier: 0.18.13
+        version: 0.18.13
 
   packages/html-program:
     dependencies:
