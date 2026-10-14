@@ -578,7 +578,7 @@ async function sourceVideoEncoding(env: MediaExecutionEnvironment, path: string,
     ...(env.sharedLibraryPath === undefined ? {} : { sharedLibraryPath: env.sharedLibraryPath }),
   });
   const probe = JSON.parse(Buffer.from(bytes).toString("utf8")) as {
-    streams: { index: number; codec_name?: string; pix_fmt?: string; time_base?: string; sample_aspect_ratio?: string; width?: number; height?: number; tags?: Record<string, string>; side_data_list?: { rotation?: number }[] }[];
+    streams: { index: number; codec_name?: string; profile?: string; level?: number; pix_fmt?: string; time_base?: string; sample_aspect_ratio?: string; width?: number; height?: number; tags?: Record<string, string>; side_data_list?: { rotation?: number }[] }[];
     pixel_formats: { name: string; flags: { alpha: number } }[];
     format?: { nb_streams?: number; format_name?: string };
   };
@@ -614,6 +614,8 @@ async function copyNormalizedVisual(args: {
   const { env, source, video, frameRate, frameCount, encoding, input, output } = args;
   const stream = encoding.stream;
   if (encoding.alpha || encoding.pixelFormat !== "yuv420p" || stream.codec_name !== "h264"
+    || !["Constrained Baseline", "Baseline", "Main", "High"].includes(stream.profile ?? "")
+    || stream.level === undefined || stream.level < 10 || stream.level > 41
     || video.codecName !== "h264" || video.width % 2 !== 0 || video.height % 2 !== 0
     || stream.width !== video.width || stream.height !== video.height
     || stream.time_base !== `${video.timeBase?.numerator}/${video.timeBase?.denominator}`
