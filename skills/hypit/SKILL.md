@@ -41,6 +41,42 @@ When setup, generation or rendering takes time, explain what is running or what 
 work. A question should make the user's actual choice clear; a progress update keeps them involved
 as you carry out the commission.
 
+## Production Execution: Cloud Render Farm (Mac M1 Guardrail)
+
+> **CRITICAL OPERATING RULE (Apple Silicon Mac M1 8 GB RAM Guardrail)**:
+> Heavy video rendering (Chromium headless 30 fps rasterization, WhisperX speech alignment, FFmpeg muxing) MUST NEVER be run directly on the user's local Mac machine.
+> All new and existing Hypit video projects MUST be created or synced inside the central **Hypit Cloud Render Farm**:
+> - **Farm Repository**: `/Users/ozy/Projects/hypit-render-farm` (Remote: `https://github.com/AkhmadFakhruddinArRozy05/hypit-render-farm`)
+> - **Runner Specs**: GitHub Actions Ubuntu 16 GB RAM, 4 vCPUs, SSD, 100% Free with unlimited minutes on public repository.
+>
+> ### 1. Scaffolding a New Project
+> Whenever the user asks to create a new Hypit video, run:
+> ```bash
+> python3 /Users/ozy/Projects/hypit-render-farm/scripts/new_project.py <slug-name> --title "Human Title"
+> ```
+> This creates `/Users/ozy/Projects/hypit-render-farm/projects/<slug-name>` with:
+> - `package.json` with font dependencies
+> - `hypit.runtime.json` with WhisperX ID alignment configured
+> - `source_manifest.json` for cloud asset ingestion
+> - `recipes.svs`, `project.svml`, and `build.svrun`
+> - `assets/` directory
+>
+> ### 2. Authoring & Asset Ingestion
+> - Put local video/audio/image assets in `projects/<slug-name>/assets/` or register external URLs (TikTok/IG/YouTube/direct HTTP) in `source_manifest.json`.
+> - Author `<script>`, Timeline, Clips, and typography inside `project.svml`.
+>
+> ### 3. Rendering via Cloud Farm
+> To render the video, DO NOT run `hypit build` locally on Mac. Instead, execute:
+> ```bash
+> python3 /Users/ozy/Projects/hypit-render-farm/scripts/render_cloud.py --project <slug-name>
+> ```
+> This controller:
+> 1. Syncs project code to GitHub `origin/main`.
+> 2. Ephemerally uploads local assets via temporary GitHub Release (auto-deleted upon completion).
+> 3. Dispatches GitHub Actions workflow on 16 GB RAM cloud runner.
+> 4. Monitors progress while Mac M1 remains 100% idle and cool.
+> 5. Downloads the final MP4 artifact to `dist/<slug-name>.mp4` and verifies streams via `ffprobe`.
+
 ## Give the work useful structure
 
 Understand the piece as objects and relationships changing over time: what persists, what changes,

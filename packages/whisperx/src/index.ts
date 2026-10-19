@@ -13,3 +13,8 @@ export { interpretWhisperXTranscript } from "./transcript.js";
 export type { WhisperXTranscriptResponse } from "./transcript.js";
 export type * from "./types.js";
 export { parseWhisperXLanguage } from "./types.js";
+export {
+  INDONESIAN_PHONETIC_REPLACEMENTS,
+  normalizeIndonesianPhonetic,
+} from "./indonesian-phonetic-normalizer.js";
+export type { PhoneticReplacementRule } from "./indonesian-phonetic-normalizer.js";

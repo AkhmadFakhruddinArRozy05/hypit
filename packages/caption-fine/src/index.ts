@@ -19,3 +19,8 @@ export { decodeFineCaptionStyleSurface, decodeFineCaptionTrackSurface } from "./
 export type * from "./types.js";
 
 export { fineCaptionEditableDefaults } from "./recipe.js";
+export {
+  INDONESIAN_PHONETIC_REPLACEMENTS,
+  normalizeIndonesianPhonetic,
+} from "./indonesian-phonetic-normalizer.js";
+export type { PhoneticReplacementRule } from "./indonesian-phonetic-normalizer.js";
