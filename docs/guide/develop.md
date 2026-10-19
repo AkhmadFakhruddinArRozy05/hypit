@@ -61,5 +61,6 @@ hypit/
 | [Models and Providers](./providers.md) | Select accounts and APIs; develop a Model or Provider package |
 | [Runtime](./runtime.md) | Profile, Workspace, execution and lifecycle boundaries |
 | [Studio localization](https://github.com/hypit-ai/hypit/blob/main/packages/studio/LOCALIZATION.md) | Translate interface messages; load a local JSON file or an installed language pack |
+| [Single-Pass In-Browser Compositing](./single-pass-compositing.md) | Deterministic single-pass video rasterization eliminating WebM VP9 Alpha |
 | [Testing](./testing.md) | Test runner, patterns, examples, boundary tests |
 | [Conventions](./conventions.md) | Naming, module boundaries, wire data, TypeScript config |
