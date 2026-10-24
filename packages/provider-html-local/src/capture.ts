@@ -41,12 +41,12 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
   const selected = input.frames === undefined ? undefined : new Set(input.frames);
   const at = (index: number) => input.frames?.[index] ?? range.startFrame + index;
   const fps = { num: document.frameRate.numerator, den: document.frameRate.denominator };
-  const limit = renderWorkerLimit(config, frameCount, fps.num / fps.den);
   const useGpu = input.frames === undefined && config.electronPath !== undefined;
+  const limit = renderWorkerLimit(config, frameCount, fps.num / fps.den, useGpu && document.frameSources.length > 0);
   const concurrency = new CaptureConcurrency(limit, config.workers === "auto" && !useGpu);
-  // GPU workers claim individual ordinals so waiting textures do not serialize
-  // whole batches. PNG workers retain contiguous batches for decode reuse.
-  const batchCount = useGpu ? frameCount : Math.max(limit, Math.ceil(frameCount / Math.max(1, Math.round(fps.num / fps.den))));
+  // GPU snapshots enter a bounded reorder queue; short consecutive batches
+  // keep nearby source requests in the same decoder.
+  const batchCount = useGpu ? Math.max(limit, Math.ceil(frameCount / 4)) : Math.max(limit, Math.ceil(frameCount / Math.max(1, Math.round(fps.num / fps.den))));
   const batches = distributeFrameRange({ startFrame: 0, endFrameExclusive: frameCount }, batchCount);
   let nextBatch = 0;
   const started = performance.now();
@@ -195,6 +195,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
         signal.throwIfAborted();
         let browserPid: number | undefined;
         let videoStats: (() => Promise<unknown>) | undefined;
+        let releaseVideo: (() => Promise<void>) | undefined;
         let captureFrame: (frame: number, sources: readonly SourceFrameUpdate[], ordinal: number, prepared: () => void)
           => Promise<Awaited<ReturnType<Awaited<ReturnType<typeof createOpaqueFrameCapture>>>>>;
         if (gpu !== undefined) {
@@ -203,6 +204,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
           browserPid = gpuWorker.browserPid;
           captureFrame = gpuWorker.capture;
           videoStats = gpuWorker.stats;
+          releaseVideo = gpuWorker.releaseSources;
         } else {
           session = await puppeteer.launch({ executablePath: config.chromePath, headless: true,
             defaultViewport: { width: document.canvas.width, height: document.canvas.height, deviceScaleFactor: 1 },
@@ -247,11 +249,10 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
           for (let index = batch.startFrame; index < batch.endFrameExclusive; index++) {
             const frame = at(index);
             signal.throwIfAborted();
-            const required = sourceDemand(frameRanges(index, index + 1));
+            const required = useGpu ? [] : sourceDemand(frameRanges(index, index + 1));
             // A preference is the unconsumed suffix, not the whole batch: frames
             // behind this Worker must become ordinary eviction candidates.
-            const preferredEnd = useGpu ? Math.min(frameCount, index + Math.max(1, Math.round(fps.num / fps.den))) : batch.endFrameExclusive;
-            const preferred = sourceDemand(frameRanges(index, preferredEnd));
+            const preferred = useGpu ? [] : sourceDemand(frameRanges(index, batch.endFrameExclusive));
             const sourceAcquireStarted = performance.now();
             const sourceLease = useGpu ? undefined : await sourceFrameStore!.acquire(required, preferred);
             sourceAcquireWorkerMs += performance.now() - sourceAcquireStarted;
@@ -300,6 +301,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
         console.log(`Capture worker ${worker}: ${completed} frames; startup ${Math.round(setupMs)} ms; `
           + `seek ${Math.round(timing.seekMs)} ms; prepare ${Math.round(timing.prepareMs)} ms; ${useGpu ? "texture and encode" : "PNG"} ${Math.round(timing.screenshotMs)} ms`);
         if (videoStats !== undefined) console.log(`Capture worker ${worker} video: ${JSON.stringify(await videoStats())}`);
+        if (releaseVideo !== undefined) await stage(`worker ${worker} media cleanup`, 5_000, releaseVideo);
         onProgress({ phase: "worker-complete", worker, completed, browserPid, elapsedMs: elapsedMs() });
       } catch (error) {
         controller.abort(error);

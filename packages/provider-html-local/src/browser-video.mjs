@@ -9,26 +9,27 @@ export async function installBrowserVideo(moduleUrl, maxBytes) {
     if (pending === undefined) {
       pending = (async () => {
         const input = new media.Input({ source: new media.UrlSource(url), formats: media.ALL_FORMATS });
-        const track = await input.getPrimaryVideoTrack();
-        if (track === null || !await track.canDecode()) {
-          input.dispose();
-          throw new Error(`Browser video decoder does not support ${url}`);
-        }
-        // Untagged SDR follows the FFmpeg source path's BT.601 matrix and sRGB transfer.
-        const decoderConfig = track.getDecoderConfig.bind(track);
-        track.getDecoderConfig = async () => {
-          const config = await decoderConfig();
-          if (!config) return config;
-          return { ...config, colorSpace: {
-            primaries: config.colorSpace?.primaries ?? "bt709",
-            transfer: config.colorSpace?.transfer ?? "iec61966-2-1",
-            matrix: config.colorSpace?.matrix ?? "smpte170m",
-            fullRange: config.colorSpace?.fullRange ?? false,
-          } };
-        };
-        return { input, sink: new media.VideoSampleSink(track, { hardwareAcceleration: "prefer-hardware" }),
-          colorSpace: (await track.getDecoderConfig())?.colorSpace,
-          firstTimestamp: await track.getFirstTimestamp(), width: track.displayWidth, height: track.displayHeight };
+        try {
+          const track = await input.getPrimaryVideoTrack();
+          if (track === null || !await track.canDecode()) {
+            throw new Error(`Browser video decoder does not support ${url}`);
+          }
+          // Untagged SDR follows the FFmpeg source path's BT.601 matrix and sRGB transfer.
+          const decoderConfig = track.getDecoderConfig.bind(track);
+          track.getDecoderConfig = async () => {
+            const config = await decoderConfig();
+            if (!config) return config;
+            return { ...config, colorSpace: {
+              primaries: config.colorSpace?.primaries ?? "bt709",
+              transfer: config.colorSpace?.transfer ?? "iec61966-2-1",
+              matrix: config.colorSpace?.matrix ?? "smpte170m",
+              fullRange: config.colorSpace?.fullRange ?? false,
+            } };
+          };
+          return { input, sink: new media.VideoSampleSink(track),
+            colorSpace: (await track.getDecoderConfig())?.colorSpace,
+            firstTimestamp: await track.getFirstTimestamp(), width: track.displayWidth, height: track.displayHeight };
+        } catch (error) { input.dispose(); throw error; }
       })();
       sources.set(url, pending);
     }
@@ -156,11 +157,18 @@ export async function installBrowserVideo(moduleUrl, maxBytes) {
       entry.sample.draw(context, 0, 0, canvas.width, canvas.height);
     }
   };
-  window.addEventListener("pagehide", () => {
-    for (const entry of cache.values())
-      entry.sample.close();
-    cache.clear();
-    for (const source of sources.values())
-      void source.then(value => { value.current?.close(); value.next?.close(); void value.iterator?.return(); value.input.dispose(); });
-  }, { once: true });
+  let disposing;
+  w.__hypitDisposeVideo = () => disposing ??= (async () => {
+    for (const entry of cache.values()) entry.sample.close();
+    cache.clear(); resident = 0;
+    const pending = [...sources.values()]; sources.clear();
+    await Promise.all(pending.map(async value => {
+      const source = await value.catch(() => undefined);
+      if (!source) return;
+      source.current?.close(); source.next?.close();
+      try { await source.iterator?.return(); }
+      finally { source.input.dispose(); }
+    }));
+  })();
+  window.addEventListener("pagehide", () => { void w.__hypitDisposeVideo().catch(() => {}); }, { once: true });
 }

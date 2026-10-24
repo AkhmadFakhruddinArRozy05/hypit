@@ -30,8 +30,11 @@ The Endpoint facet is `rasterize`. Runtime configuration owns execution policy:
 - `ffmpegPath` and `ffprobePath`;
 - optional process/stage deadlines and byte budgets.
 
-For GPU export, `auto` uses the admitted worker ceiling, limited by the requested
-frame span. PNG capture adjusts its active workers using measured throughput.
+For GPU export with declared video sources, `auto` uses one scene worker, sharing
+its source decoders and cache across the timeline. Pure motion graphics use
+parallel scenes up to the admitted worker ceiling. An explicit worker count
+enables that many scenes, limited by the requested frame span. PNG capture adjusts its
+active workers using measured throughput.
 GPU export requires `browserGpu: "auto"` or `"hardware"`, even canvas dimensions,
 shared-texture support, browser support for each source codec and a supported
 WebCodecs H.264 configuration. Unsupported configurations fail with a diagnostic.
@@ -56,7 +59,7 @@ Example `html.local` Endpoint configuration:
 ```json
 {
   "electronPath": "/absolute/path/to/electron",
-  "workers": 8,
+  "workers": "auto",
   "quality": "standard"
 }
 ```
@@ -75,7 +78,8 @@ any requested frame. The compiler's `frameSources` plan determines reverse, hold
 loop and rational-rate video sampling. PNG capture leases decoded images under
 `maxDecodedSourceBytes` and places them over compiler-owned video elements.
 
-GPU capture decodes source video inside each scene renderer. Forward sampling
+GPU capture decodes source video inside each scene renderer. Chromium selects
+hardware or software decoding according to source support. Forward sampling
 reuses a decoder; reverse sampling decodes bounded forward intervals into a
 sample cache. Holds and loops reuse cached samples. Canvas layers retain the
 video elements' styles and placement. Inactive sources release their decoders.
@@ -92,10 +96,17 @@ copy before Canvas composition. Mediabunny 1.62.1 is distributed under
 The GPU path renders each Program in a fixed-size same-origin iframe. A separate
 32-bit frame identifier below the authored viewport identifies the accepted
 texture. Only its 8 KiB identifier region is read back to the CPU. Canvas crops
-that region before creating the encoder's `VideoFrame`. Each worker retains at
-most one frame waiting for ordered encoding. `maxPendingFrameBytes` bounds pending
-compressed output, with one chunk allowed to exceed the budget. Scene surfaces
-remain alive through the encoder flush.
+that region before creating an immutable `VideoFrame` snapshot. Scenes can
+prepare subsequent frames while a shared queue feeds snapshots to the encoder
+in timeline order. Admission reserves space for the next required frame to
+prevent later frames from blocking it.
+
+`maxPendingFrameBytes` controls admission using queued snapshot pixels and pending
+compressed output. One oversized snapshot can enter an empty queue. Encoding
+already in progress can produce compressed chunks above that admission threshold;
+native encoder buffers and compositor surfaces require additional memory. Each
+worker releases source decoders and samples when its capture completes. Scene
+surfaces remain alive through the encoder flush.
 
 WebCodecs uses H.264 High with `quality` latency and a hardware preference.
 At 1920 × 1080 / 30 fps, `quality` selects target bitrates of 6 Mbps (`draft`),
@@ -118,8 +129,10 @@ release its resources. Process-tree cleanup is best effort after abnormal exits;
 hard OS termination requires containment supplied by the deployment.
 
 Frame preparation waits for page frame listeners, declared fonts and dynamic
-image decodes. GPU capture additionally waits for two animation-frame callbacks
-before updating its texture identifier. Authored asynchronous drawing must finish
+image decodes. GPU capture updates its texture identifier after preparation and
+accepts a shared surface only when its identifier matches. The authored page and
+identifier participate in the same local frame-tree rendering update.
+Authored asynchronous drawing must finish
 inside the Program's frame completion hooks. Child pages rendered in another
 renderer process are rejected by GPU capture; the iframe container makes
 `window.top` refer to the capture shell.
@@ -131,7 +144,7 @@ import { rasterizeHtmlProgram } from "@hypit/provider-html-local";
 
 const visual = await rasterizeHtmlProgram(
   { program, range: { startFrame: 240, endFrameExclusive: 360 } },
-  { resources, electronPath: "/absolute/path/to/electron", workers: 8 },
+  { resources, electronPath: "/absolute/path/to/electron", workers: "auto" },
 );
 ```
 

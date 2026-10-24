@@ -140,7 +140,7 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
     void configured.catch(() => {});
     const bitrate = Math.max(64_000, Math.round({ draft: 6_000_000, standard: 12_000_000, high: 24_000_000 }[config.quality]
       * width * height / (1920 * 1080) * fps / 30));
-    encoding.webContents.send("hypit-configure", { width, height, fps, bitrate, maxPendingBytes: config.maxPendingFrameBytes });
+    encoding.webContents.send("hypit-configure", { width, height, fps, bitrate, frameCount, maxPendingBytes: config.maxPendingFrameBytes });
     await configured;
   } catch (error) { controller.abort(error); await close(); throw error; }
 
@@ -188,14 +188,17 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
       return {
         browserPid: window.webContents.getOSProcessId(),
         async stats() { return child.executeJavaScript("__hypitVideoStats()"); },
+        async releaseSources() { await child.executeJavaScript("__hypitDisposeVideo()"); },
         async capture(frame: number, sources: readonly SourceFrameUpdate[], ordinal: number, prepared: () => void) {
           signal.throwIfAborted(); sameRenderer();
           const timing = await prepare(frame, sources);
           // Finish source readiness before waiting for earlier output ordinals.
           prepared();
           const started = performance.now();
-          await child.executeJavaScript("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
           sameRenderer(); signal.throwIfAborted();
+          // This local frame tree commits together. Ignore surfaces received
+          // before the ready page publishes its new frame identifier.
+          scene.latest?.release(); scene.latest = undefined;
           const token = ordinal + 1;
           const observed = new Promise<void>((resolve, reject) => { scene.pending = { token, ordinal, resolve, reject }; });
           void observed.catch(() => {});

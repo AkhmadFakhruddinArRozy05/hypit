@@ -125,7 +125,7 @@ async function capture(request: HtmlRasterRequest | HtmlFrameRequest, options: H
     if (gpu) await requireElectronExecutable(config.electronPath!);
     else await requireBrowserExecutable(config.chromePath, config.browserVersion);
     await options.onDiagnostic?.({ level: "info", message:
-      `Capture ${frameCount} frames; workers ${config.workers} (limit ${renderWorkerLimit(config, frameCount, document.frameRate.numerator / document.frameRate.denominator)}); ${gpu ? "shared GPU texture" : "opaque fast PNG"}; GPU ${config.browserGpu}; browser ${gpu ? config.electronPath : config.chromePath}`
+      `Capture ${frameCount} frames; workers ${config.workers} (limit ${renderWorkerLimit(config, frameCount, document.frameRate.numerator / document.frameRate.denominator, gpu && document.frameSources.length > 0)}); ${gpu ? "shared GPU texture" : "opaque fast PNG"}; GPU ${config.browserGpu}; browser ${gpu ? config.electronPath : config.chromePath}`
       + `; artifact staging concurrency ${config.artifactStagingConcurrency}`
       + `; decoded source budget ${config.maxDecodedSourceBytes} bytes`
       + (frames === undefined ? `; quality ${config.quality}; ${gpu ? "WebCodecs H.264 and FFmpeg mux" : "ordered FFmpeg pipe"}; pending frame budget ${config.maxPendingFrameBytes} bytes; FFmpeg ${config.ffmpegPath}` : "; PNG output") });
