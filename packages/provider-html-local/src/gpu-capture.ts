@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { createWriteStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { finished } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -11,9 +12,13 @@ import { createFramePreparer } from "./opaque-capture.js";
 import type { SourceFrameUpdate } from "./opaque-capture.js";
 import { assert } from "./process.js";
 
-export function gpuCapturePages({ width, height }: { width: number; height: number }) {
+export async function gpuCapturePages({ width, height }: { width: number; height: number }) {
   const shell = `/__hypit_capture_${randomUUID()}.html`;
   const encoder = `/__hypit_encoder_${randomUUID()}.html`;
+  const decoder = `/__hypit_decoder_${randomUUID()}.mjs`;
+  const video = `/__hypit_video_${randomUUID()}.mjs`;
+  const bundle = await readFile(new URL("../../bundles/mediabunny.min.mjs", import.meta.resolve("mediabunny")), "utf8");
+  const videoModule = await readFile(new URL("../src/browser-video.mjs", import.meta.url), "utf8");
   const html = `<!doctype html><meta charset="utf-8"><style>
 html,body{margin:0;background:#000;overflow:hidden}
 iframe{position:absolute;left:0;top:0;width:${width}px;height:${height}px;border:0}
@@ -28,7 +33,7 @@ window.__hypitCaptureCommit=token=>{
   }
 };
 </script>`;
-  return { shell, encoder, pages: new Map([[shell, html], [encoder, "<!doctype html><title>Hypit encoder</title>"]]) };
+  return { shell, encoder, decoder, video, pages: new Map([[shell, html], [encoder, "<!doctype html><title>Hypit encoder</title>"], [decoder, bundle], [video, videoModule]]) };
 }
 
 type PendingFrame = { token: number; ordinal: number; resolve(): void; reject(error: unknown): void };
@@ -37,7 +42,7 @@ type Scene = { window: BrowserWindow; pending?: PendingFrame | undefined;
 
 /** One request owns its windows, texture references and ordered H.264 stream. */
 export async function createGpuCapture(input: CaptureInput, origin: string,
-  pages: ReturnType<typeof gpuCapturePages>, controller: AbortController) {
+  pages: Awaited<ReturnType<typeof gpuCapturePages>>, controller: AbortController, workers: number) {
   const { BrowserWindow, ipcMain, sharedTexture } = createRequire(import.meta.url)("electron") as typeof import("electron");
   const { config, document } = input;
   const { width, height } = document.canvas;
@@ -177,13 +182,16 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
           child.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`)) as Page["evaluate"],
       };
       const prepare = await createFramePreparer(page);
+      await child.executeJavaScript(`import(${JSON.stringify(new URL(pages.video, origin).href)})
+        .then(module=>module.installBrowserVideo(${JSON.stringify(new URL(pages.decoder, origin).href)},
+          ${Math.max(1, Math.floor(config.maxDecodedSourceBytes / workers))}))`);
       return {
         browserPid: window.webContents.getOSProcessId(),
+        async stats() { return child.executeJavaScript("__hypitVideoStats()"); },
         async capture(frame: number, sources: readonly SourceFrameUpdate[], ordinal: number, prepared: () => void) {
           signal.throwIfAborted(); sameRenderer();
           const timing = await prepare(frame, sources);
-          // Decoded source files can be evicted after their images have loaded,
-          // before this texture waits for earlier output ordinals.
+          // Finish source readiness before waiting for earlier output ordinals.
           prepared();
           const started = performance.now();
           await child.executeJavaScript("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");

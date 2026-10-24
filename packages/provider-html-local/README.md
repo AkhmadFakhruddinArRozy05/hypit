@@ -6,13 +6,13 @@ Trusted local implementation of:
 - `@hypit/html-program@1#rasterize-frames` → ordered PNG BlobRefs.
 
 The Provider stages a typed `HtmlProgram`, applies absolute integer frames through
-`window.__hypitFrameProgram`, and supplies compiler-declared video samples from a
-bounded FFmpeg decode store. It supports two video export configurations:
+`window.__hypitFrameProgram`, and supplies compiler-declared video samples.
+It supports two video export configurations:
 
-| Configuration | Capture and encoding |
-| --- | --- |
-| `chromePath`, or managed Chrome selection | Puppeteer PNG capture and ordered FFmpeg H.264 encoding |
-| `electronPath` | Electron shared GPU textures, Canvas cropping, WebCodecs H.264 encoding, FFmpeg MP4 muxing |
+| Configuration | Source video | Capture and encoding |
+| --- | --- | --- |
+| `chromePath`, or managed Chrome selection | Bounded FFmpeg PNG decode store | Puppeteer PNG capture and ordered FFmpeg H.264 encoding |
+| `electronPath` | Mediabunny demuxing, WebCodecs decoding, Canvas video layers | Electron shared GPU textures, Canvas cropping, WebCodecs H.264 encoding, FFmpeg MP4 muxing |
 
 PNG frame requests use the selected Chrome browser. Filesystem staging, source
 probing and decoded-frame leases belong to this Provider.
@@ -33,8 +33,8 @@ The Endpoint facet is `rasterize`. Runtime configuration owns execution policy:
 For GPU export, `auto` uses the admitted worker ceiling, limited by the requested
 frame span. PNG capture adjusts its active workers using measured throughput.
 GPU export requires `browserGpu: "auto"` or `"hardware"`, even canvas dimensions,
-shared-texture support and a supported WebCodecs H.264 configuration. Unsupported
-configurations fail with a diagnostic.
+shared-texture support, browser support for each source codec and a supported
+WebCodecs H.264 configuration. Unsupported configurations fail with a diagnostic.
 
 The Chrome recommendation is stored as `hypit.htmlBrowser.version`. Managed Chrome
 defaults to `~/.cache/hypit/html-rasterizer/chrome`; its ManagedProgram state is
@@ -72,8 +72,22 @@ Linux additionally needs the display environment required by Electron.
 A continuous request retains original absolute frame identities. A sparse PNG
 request accepts strictly increasing, non-contiguous frames. Workers can start at
 any requested frame. The compiler's `frameSources` plan determines reverse, hold,
-loop and rational-rate video sampling. Decoded samples are leased under
-`maxDecodedSourceBytes`; their images replace compiler-owned native video pixels.
+loop and rational-rate video sampling. PNG capture leases decoded images under
+`maxDecodedSourceBytes` and places them over compiler-owned video elements.
+
+GPU capture decodes source video inside each scene renderer. Forward sampling
+reuses a decoder; reverse sampling decodes bounded forward intervals into a
+sample cache. Holds and loops reuse cached samples. Canvas layers retain the
+video elements' styles and placement. Inactive sources release their decoders.
+`maxDecodedSourceBytes` is divided across workers and bounds retained sample
+bytes, allowing one oversized sample per worker. Decoder queues, demuxer caches
+and compositor surfaces require additional memory. Worker count also multiplies
+source decoding; more workers can reduce throughput for video-heavy projects.
+
+Source color tags are preserved. Untagged SDR uses a BT.601 matrix and sRGB
+transfer. Planar alpha samples retain source color metadata through an in-memory
+copy before Canvas composition. Mediabunny 1.62.1 is distributed under
+[MPL-2.0](https://github.com/Vanilagy/mediabunny/blob/main/LICENSE).
 
 The GPU path renders each Program in a fixed-size same-origin iframe. A separate
 32-bit frame identifier below the authored viewport identifies the accepted

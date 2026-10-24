@@ -104,7 +104,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
       metadata: Awaited<ReturnType<typeof probeSourceVideo>> }>();
     // Chrome needs dimensions before initialization. Pixel frames themselves
     // are decoded lazily for the screenshots that lease them.
-    for (const source of plannedSources) {
+    for (const source of useGpu ? [] : plannedSources) {
       const path = resolve(work, source.src);
       assert(path.startsWith(`${work}${sep}`), "HTML renderer source is outside the staged project");
       const metadata = await probeSourceVideo({ executable: ffprobePath, path,
@@ -113,7 +113,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
       sources.set(source.src, { path, fps: source.fps, metadata });
     }
     let extraction = 0;
-    sourceFrameStore = new SourceFrameStore({ maxBytes: config.maxDecodedSourceBytes, signal,
+    if (!useGpu) sourceFrameStore = new SourceFrameStore({ maxBytes: config.maxDecodedSourceBytes, signal,
       decode: (src, window) => {
         const source = sources.get(src);
         assert(source !== undefined, `HTML renderer source ${src} is outside the requested render`);
@@ -140,11 +140,11 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
         }
         return payloads;
     };
-    const gpuPages = useGpu ? gpuCapturePages(document.canvas) : undefined;
+    const gpuPages = useGpu ? await gpuCapturePages(document.canvas) : undefined;
     server = await serveHtmlProgram(work, gpuPages?.pages);
     if (gpuPages !== undefined) {
       gpu = await stage("GPU encoder initialization", config.initializationTimeoutMs,
-        () => createGpuCapture(input, server!.url, gpuPages, controller));
+        () => createGpuCapture(input, server!.url, gpuPages, controller, limit));
     }
     const serverUrl = server.url;
     const outputFrames = join(work, "frames");
@@ -194,6 +194,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
       try {
         signal.throwIfAborted();
         let browserPid: number | undefined;
+        let videoStats: (() => Promise<unknown>) | undefined;
         let captureFrame: (frame: number, sources: readonly SourceFrameUpdate[], ordinal: number, prepared: () => void)
           => Promise<Awaited<ReturnType<Awaited<ReturnType<typeof createOpaqueFrameCapture>>>>>;
         if (gpu !== undefined) {
@@ -201,6 +202,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
           const gpuWorker = await stage(`worker ${worker} initialization`, config.initializationTimeoutMs, () => gpu!.createWorker());
           browserPid = gpuWorker.browserPid;
           captureFrame = gpuWorker.capture;
+          videoStats = gpuWorker.stats;
         } else {
           session = await puppeteer.launch({ executablePath: config.chromePath, headless: true,
             defaultViewport: { width: document.canvas.width, height: document.canvas.height, deviceScaleFactor: 1 },
@@ -251,19 +253,21 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
             const preferredEnd = useGpu ? Math.min(frameCount, index + Math.max(1, Math.round(fps.num / fps.den))) : batch.endFrameExclusive;
             const preferred = sourceDemand(frameRanges(index, preferredEnd));
             const sourceAcquireStarted = performance.now();
-            const sourceLease = await sourceFrameStore!.acquire(required, preferred);
+            const sourceLease = useGpu ? undefined : await sourceFrameStore!.acquire(required, preferred);
             sourceAcquireWorkerMs += performance.now() - sourceAcquireStarted;
             let captured: Awaited<ReturnType<typeof captureFrame>>;
             try {
-              const payloads = activeFramePayloads(frame);
-              const sourceUpdates = [...payloads].map(([id, payload]) => ({ id,
-                url: new URL(relative(work, payload.framePath).split(sep).map(encodeURIComponent).join("/"), serverUrl).href }));
+              const sourceUpdates: SourceFrameUpdate[] = useGpu
+                ? slotIndex.at(frame).map(slot => ({ id: slot.id, url: new URL(slot.src, serverUrl).href,
+                  sample: { frame: sourceFrameAt(slot, frame), fps: slot.sourceFps, reverse: slot.sourceRate.numerator < 0n } }))
+                : [...activeFramePayloads(frame)].map(([id, payload]) => ({ id,
+                  url: new URL(relative(work, payload.framePath).split(sep).map(encodeURIComponent).join("/"), serverUrl).href }));
               captured = await stage(`worker ${worker} frame ${frame}`, config.frameTimeoutMs,
-                () => captureFrame(frame, sourceUpdates, index, () => sourceLease.release()));
+                () => captureFrame(frame, sourceUpdates, index, () => sourceLease?.release()));
             } finally {
               // Output submission may block behind an earlier frame. Never
               // retain source leases across that independent backpressure.
-              sourceLease.release();
+              sourceLease?.release();
             }
             if (input.frames !== undefined) {
               capturedBytes += captured.buffer.byteLength;
@@ -295,6 +299,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
         }
         console.log(`Capture worker ${worker}: ${completed} frames; startup ${Math.round(setupMs)} ms; `
           + `seek ${Math.round(timing.seekMs)} ms; prepare ${Math.round(timing.prepareMs)} ms; ${useGpu ? "texture and encode" : "PNG"} ${Math.round(timing.screenshotMs)} ms`);
+        if (videoStats !== undefined) console.log(`Capture worker ${worker} video: ${JSON.stringify(await videoStats())}`);
         onProgress({ phase: "worker-complete", worker, completed, browserPid, elapsedMs: elapsedMs() });
       } catch (error) {
         controller.abort(error);
@@ -324,7 +329,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
     if (failure !== undefined) throw failure;
     signal.throwIfAborted();
     await Promise.all(closing.values());
-    console.log(`Capture source working set: ${sourceTotal} unique frames demanded; decoded ${sourceFrameStore.decodedFrames} frames; `
+    if (sourceFrameStore !== undefined) console.log(`Capture source working set: ${sourceTotal} unique frames demanded; decoded ${sourceFrameStore.decodedFrames} frames; `
       + `redecoded ${Math.max(0, sourceFrameStore.decodedFrames - sourceTotal)}; decoder runs ${extraction}; `
       + `decoded bytes ${sourceFrameStore.decodedBytes}; largest frame ${sourceFrameStore.largestDecodedFrameBytes} bytes; `
       + `peak ${sourceFrameStore.peakResidentBytes} bytes; budget ${config.maxDecodedSourceBytes} bytes; `

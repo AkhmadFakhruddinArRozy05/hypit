@@ -6,17 +6,19 @@ type RenderWindow = Window & {
   __hypitHtmlVisualError?: string;
   __hypitCaptureRoots?: readonly Element[];
   __hypitPrepareImages(): Promise<void>;
+  __hypitDrawVideoSources?(sources: readonly SourceFrameUpdate[]): Promise<void>;
 };
 
-export type SourceFrameUpdate = { readonly id: string; readonly url: string };
+export type SourceFrameUpdate = { readonly id: string; readonly url: string;
+  readonly sample?: { readonly frame: number; readonly fps: { readonly num: number; readonly den: number }; readonly reverse: boolean } };
 
 /** Install page-owned resource readiness and prepare deterministic frame states. */
 export async function createFramePreparer(page: Pick<Page, "evaluate">) {
   // Image readiness belongs to this page. A seek can select a new image through
   // attributes, a CSS class or a pseudo-element after initial page readiness.
   await page.evaluate(() => {
-    // Compiler-declared video samples are supplied by the decoded-frame store.
-    // Hide every source element so inactive native videos cannot cover its images.
+    // The Provider supplies compiler-declared video pixels in adjacent layers.
+    // Hide native pixels while retaining the elements for authored frame updates.
     for (const video of Array.from(document.querySelectorAll<HTMLVideoElement>("video[data-hypit-source-frame]"))) {
       video.dataset.hypitAuthoredVisibility = video.style.visibility;
       video.style.visibility = "hidden";
@@ -257,7 +259,8 @@ export async function createFramePreparer(page: Pick<Page, "evaluate">) {
       for (const image of Array.from(document.querySelectorAll<HTMLImageElement>('[data-hypit-source-frame-image]'))) {
         if (!active.has(image.dataset.hypitSourceFrameImage!)) image.style.display = 'none';
       }
-      await Promise.all(input.sources.map(async source => {
+      if (w.__hypitDrawVideoSources !== undefined) await w.__hypitDrawVideoSources(input.sources);
+      else await Promise.all(input.sources.map(async source => {
         const video = document.getElementById(source.id) as HTMLVideoElement | null;
         if (video === null) throw new Error(`HTML Program source element ${source.id} is missing.`);
         let image = document.querySelector<HTMLImageElement>(`[data-hypit-source-frame-image="${CSS.escape(source.id)}"]`);
