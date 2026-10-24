@@ -103,9 +103,9 @@ input and sample cache, so aligned requests reuse the same decoded frame. Revers
 sampling divides the cache budget across active layers and decodes bounded forward
 intervals. Holds and loops reuse cached samples. Canvas layers retain the video
 elements' styles and placement. Inactive layers release their decoder cursors.
-`maxDecodedSourceBytes` is divided across workers and bounds retained sample
-bytes, allowing one oversized sample per worker. Decoder queues, demuxer caches
-and compositor surfaces require additional memory. Worker count also multiplies
+`maxDecodedSourceBytes` defaults to 2.25 GiB, is divided across workers and bounds
+retained sample bytes, allowing one oversized sample per worker. Decoder queues,
+demuxer caches and compositor surfaces require additional memory. Worker count also multiplies
 source decoding; more workers can reduce throughput for video-heavy projects.
 
 Source color tags are preserved. Untagged SDR uses a BT.601 matrix and sRGB
@@ -125,9 +125,9 @@ prepare subsequent frames while a shared queue feeds snapshots to the encoder
 in timeline order. Admission reserves space for the next required frame to
 prevent later frames from blocking it.
 
-`maxPendingFrameBytes` controls admission using queued snapshot pixels and pending
-compressed output. One oversized snapshot can enter an empty queue. Encoding
-already in progress can produce compressed chunks above that admission threshold;
+`maxPendingFrameBytes` defaults to 128 MiB and controls admission using queued
+snapshot pixels and pending compressed output. One oversized snapshot can enter
+an empty queue. Encoding already in progress can produce compressed chunks above that admission threshold;
 native encoder buffers and compositor surfaces require additional memory. Each
 worker releases source decoders and samples when its capture completes. Scene
 surfaces remain alive through the encoder flush.

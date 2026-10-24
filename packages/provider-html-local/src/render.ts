@@ -66,8 +66,8 @@ export function resolveExecutionOptions(options: HtmlExecutionOptions) {
     processTimeoutMs: positiveInteger(options.processTimeoutMs ?? 30 * 60_000, "processTimeoutMs"),
     maxProcessOutputBytes: positiveInteger(options.maxProcessOutputBytes ?? 4 * 1024 * 1024, "maxProcessOutputBytes"),
     artifactStagingConcurrency: positiveInteger(options.artifactStagingConcurrency ?? 4, "artifactStagingConcurrency"),
-    maxPendingFrameBytes: positiveInteger(options.maxPendingFrameBytes ?? 256 * 1024 * 1024, "maxPendingFrameBytes"),
-    maxDecodedSourceBytes: positiveInteger(options.maxDecodedSourceBytes ?? 1024 * 1024 * 1024, "maxDecodedSourceBytes"),
+    maxPendingFrameBytes: positiveInteger(options.maxPendingFrameBytes ?? 128 * 1024 * 1024, "maxPendingFrameBytes"),
+    maxDecodedSourceBytes: positiveInteger(options.maxDecodedSourceBytes ?? 2304 * 1024 * 1024, "maxDecodedSourceBytes"),
     maxRenderedBytes: positiveInteger(options.maxRenderedBytes ?? 16 * 1024 * 1024 * 1024, "maxRenderedBytes"),
   };
 }
