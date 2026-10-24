@@ -13,7 +13,7 @@ Eight staggered/reversed 1080p video layers, 600 frames. Export seconds include 
 
 The default configuration reduced the measured median from 22.287 to 16.097 seconds, approximately 28%. Three repetitions completed for both configurations; the planned five-repetition comparison remains incomplete. The 3 GiB median differs from the default by about 0.08 seconds in these observations. These results support retaining the current provisional defaults and do not establish an optimum.
 
-Default configuration frame-ID checks passed: 5,400 timeline/source observations for eight layers, 1,800 observations for the two-video project and 600 timeline observations for complex MG. The ordinary video export took 12.13 seconds; the automatic-worker MG export took 18.62 seconds. Completed jobs left no observed descendants. The operator-cancelled job is recorded separately.
+Default configuration frame-ID checks passed: 5,400 timeline/source observations for eight layers, 1,800 observations for the two-video project and 600 timeline observations for complex MG. The ordinary video export took 12.13 seconds; the automatic-worker MG export took 18.61 seconds. Completed jobs left no observed descendants. The operator-cancelled job is recorded separately.
 
 Memory is sampled every 250 ms across the export host and its descendants, including Electron processes that create separate process groups. RSS and macOS physical footprint are distinct from retained sample allocation and exclusive GPU memory. Only the corrected process-tree sampling run is summarized here.
 
