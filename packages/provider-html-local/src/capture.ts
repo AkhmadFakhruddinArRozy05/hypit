@@ -340,6 +340,7 @@ export async function captureStagedVisual(input: CaptureInput, controller: Abort
     onProgress({ phase: "encoding", elapsedMs: elapsedMs() });
     if (gpu !== undefined) {
       const raw = await gpu.finish();
+      await gpu.close();
       // The requested frame clock defines every packet duration, including the last.
       await runProcess({ executable: ffmpegPath,
         argv: ["-v", "error", "-y", "-r", `${fps.num}/${fps.den}`, "-i", raw,
