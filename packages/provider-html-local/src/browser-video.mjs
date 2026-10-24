@@ -26,7 +26,7 @@ export async function installBrowserVideo(moduleUrl, maxBytes) {
               fullRange: config.colorSpace?.fullRange ?? false,
             } };
           };
-          return { input, sink: new media.VideoSampleSink(track),
+          return { input, sink: new media.VideoSampleSink(track), cursors: new Map(),
             colorSpace: (await track.getDecoderConfig())?.colorSpace,
             firstTimestamp: await track.getFirstTimestamp(), width: track.displayWidth, height: track.displayHeight };
         } catch (error) { input.dispose(); throw error; }
@@ -57,25 +57,34 @@ export async function installBrowserVideo(moduleUrl, maxBytes) {
     resident += bytes;
     peak = Math.max(peak, resident);
   };
-  const readSample = async (source, timestamp) => {
-    if (!source.iterator || timestamp < source.current?.timestamp || timestamp - source.current?.timestamp > 2) {
-      if (source.iterator) await source.iterator.return();
-      source.current?.close(); source.next?.close();
+  const closeCursor = async (cursor) => {
+    cursor.current?.close(); cursor.next?.close();
+    await cursor.iterator?.return();
+  };
+  const readSample = async (source, id, timestamp, endTimestamp) => {
+    // Each layer advances independently; the source and retained samples are shared.
+    let cursor = source.cursors.get(id);
+    if (!cursor) { cursor = {}; source.cursors.set(id, cursor); }
+    if (!cursor.iterator || timestamp < cursor.current?.timestamp || timestamp >= cursor.endTimestamp
+      || timestamp - cursor.current?.timestamp > 2) {
+      if (cursor.iterator) await cursor.iterator.return();
+      cursor.current?.close(); cursor.next?.close();
       decoderStarts++;
-      source.iterator = source.sink.samples(timestamp);
-      source.current = (await source.iterator.next()).value;
-      source.next = (await source.iterator.next()).value;
-      if (source.current) samplesRead++;
-      if (source.next) samplesRead++;
+      cursor.endTimestamp = endTimestamp ?? Infinity;
+      cursor.iterator = source.sink.samples(timestamp, endTimestamp);
+      cursor.current = (await cursor.iterator.next()).value;
+      cursor.next = (await cursor.iterator.next()).value;
+      if (cursor.current) samplesRead++;
+      if (cursor.next) samplesRead++;
     }
-    while (source.next && source.next.timestamp <= timestamp) {
-      source.current?.close();
-      source.current = source.next;
-      source.next = (await source.iterator.next()).value;
-      if (source.next) samplesRead++;
+    while (cursor.next && cursor.next.timestamp <= timestamp) {
+      cursor.current?.close();
+      cursor.current = cursor.next;
+      cursor.next = (await cursor.iterator.next()).value;
+      if (cursor.next) samplesRead++;
     }
-    if (!source.current) throw new Error(`Browser video has no sample at ${timestamp}`);
-    const sample = source.current;
+    if (!cursor.current) throw new Error(`Browser video has no sample at ${timestamp}`);
+    const sample = cursor.current;
     // Planar alpha samples need the source color tags before RGB conversion.
     if (/^I\d{3}A/.test(sample.format)) {
       const bytes = new Uint8Array(sample.allocationSize());
@@ -91,14 +100,15 @@ export async function installBrowserVideo(moduleUrl, maxBytes) {
   const w = window;
   w.__hypitVideoStats = () => ({ samplesRead, decoderStarts, cacheHits, peak });
   w.__hypitDrawVideoSources = async (updates) => {
-    const active = new Set(updates.map(update => update.id));
+    const active = new Map(updates.map(update => [update.id, update.url]));
     const activeUrls = new Set(updates.map(update => update.url));
     for (const [url, pending] of sources) {
-      if (activeUrls.has(url)) continue;
       const source = await pending;
-      source.current?.close(); source.next?.close();
-      await source.iterator?.return();
-      source.input.dispose(); sources.delete(url);
+      for (const [id, cursor] of source.cursors) {
+        if (active.get(id) === url) continue;
+        await closeCursor(cursor); source.cursors.delete(id);
+      }
+      if (!activeUrls.has(url)) { source.input.dispose(); sources.delete(url); }
     }
     for (const canvas of Array.from(document.querySelectorAll("[data-hypit-source-frame-canvas]"))) {
       if (!active.has(canvas.dataset.hypitSourceFrameCanvas) && canvas.style.display !== "none") {
@@ -116,13 +126,15 @@ export async function installBrowserVideo(moduleUrl, maxBytes) {
       if (!cache.has(key)) {
         // Reverse playback decodes a bounded forward interval, then reuses its samples.
         const count = selection.reverse ? Math.max(1, Math.min(64,
-          Math.floor(maxBytes / Math.max(1, activeUrls.size) / (source.sampleBytes ?? source.width * source.height * 4)))) : 1;
+          Math.floor(maxBytes / Math.max(1, updates.length) / (source.sampleBytes ?? source.width * source.height * 4)))) : 1;
         const start = selection.reverse ? Math.max(0, selection.frame - count + 1) : selection.frame;
         const length = selection.reverse ? selection.frame - start + 1 : count;
         const timestamps = Array.from({ length }, (_, index) => source.firstTimestamp
           + (start + index + 0.5) * selection.fps.den / selection.fps.num);
+        const endTimestamp = selection.reverse ? source.firstTimestamp
+          + (selection.frame + 1) * selection.fps.den / selection.fps.num : undefined;
         for (let index = 0; index < timestamps.length; index++) {
-          const sample = await readSample(source, timestamps[index]);
+          const sample = await readSample(source, update.id, timestamps[index], endTimestamp);
           source.sampleBytes = sample.allocationSize();
           retain(keyFor(start + index), sample, key);
         }
@@ -165,8 +177,7 @@ export async function installBrowserVideo(moduleUrl, maxBytes) {
     await Promise.all(pending.map(async value => {
       const source = await value.catch(() => undefined);
       if (!source) return;
-      source.current?.close(); source.next?.close();
-      try { await source.iterator?.return(); }
+      try { await Promise.all([...source.cursors.values()].map(closeCursor)); }
       finally { source.input.dispose(); }
     }));
   })();

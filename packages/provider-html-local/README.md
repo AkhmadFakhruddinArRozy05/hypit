@@ -98,9 +98,11 @@ loop and rational-rate video sampling. PNG capture leases decoded images under
 
 GPU capture decodes source video inside each scene renderer. Chromium selects
 hardware or software decoding according to source support. Forward sampling
-reuses a decoder; reverse sampling decodes bounded forward intervals into a
-sample cache. Holds and loops reuse cached samples. Canvas layers retain the
-video elements' styles and placement. Inactive sources release their decoders.
+keeps an independent decoder cursor for each video layer. Layers share the source
+input and sample cache, so aligned requests reuse the same decoded frame. Reverse
+sampling divides the cache budget across active layers and decodes bounded forward
+intervals. Holds and loops reuse cached samples. Canvas layers retain the video
+elements' styles and placement. Inactive layers release their decoder cursors.
 `maxDecodedSourceBytes` is divided across workers and bounds retained sample
 bytes, allowing one oversized sample per worker. Decoder queues, demuxer caches
 and compositor surfaces require additional memory. Worker count also multiplies
@@ -115,7 +117,9 @@ Mediabunny is distributed under
 
 The GPU path renders each Program in a fixed-size same-origin iframe. A separate
 32-bit frame identifier below the authored viewport identifies the accepted
-texture. Only its 8 KiB identifier region is read back to the CPU. Canvas crops
+texture. Native texture imports are submitted one at a time in ready-frame order;
+snapshot copying and encoding proceed concurrently. Only the 8 KiB identifier
+region is read back to the CPU. Canvas crops
 that region before creating an immutable `VideoFrame` snapshot. Scenes can
 prepare subsequent frames while a shared queue feeds snapshots to the encoder
 in timeline order. Admission reserves space for the next required frame to

@@ -58,6 +58,7 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
   const writer = createWriteStream(raw);
   const writerClosed = finished(writer).catch(() => {});
   const scenes = new Set<Scene>();
+  let transferring = false;
   let closing = false, bytesWritten = 0, chunks = 0, lastTimestamp = -1;
   const encoding = new BrowserWindow({ show: false, width: 300, height: 200, webPreferences: {
     preload: fileURLToPath(new URL("../src/gpu-encoder.cjs", import.meta.url)), sandbox: false, backgroundThrottling: false,
@@ -65,17 +66,28 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
   const fail = (error: unknown) => { if (!closing) controller.abort(error instanceof Error ? error : new Error(String(error))); };
   writer.on("error", fail);
   const trusted = (event: IpcMainEvent) => event.sender === encoding.webContents;
-  function processTexture(scene: Scene) {
-    if (closing || scene.busy || scene.pending === undefined || scene.latest === undefined) return;
-    const texture = scene.latest;
+  function processTexture() {
+    if (closing || transferring) return;
+    const scene = [...scenes].filter(item => !item.busy && item.pending !== undefined && item.latest !== undefined)
+      .sort((a, b) => a.pending!.ordinal - b.pending!.ordinal)[0];
+    if (scene === undefined) return;
+    const texture = scene.latest!;
     scene.latest = undefined;
     scene.busy = true;
     let imported: ReturnType<typeof sharedTexture.importSharedTexture>;
     try {
       imported = sharedTexture.importSharedTexture({ textureInfo: texture.textureInfo, allReferencesReleased: () => texture.release() });
     } catch (error) { texture.release(); fail(error); return; }
-    void sharedTexture.sendSharedTexture({ frame: encoding.webContents.mainFrame, importedSharedTexture: imported },
-      { token: scene.pending.token, ordinal: scene.pending.ordinal }).finally(() => imported.release()).catch(fail);
+    // Electron limits each native transfer handshake to one second. Submit the
+    // earliest ready frame and wait for its import acknowledgement before another.
+    // Snapshot copying and encoding can continue concurrently in the receiver.
+    transferring = true;
+    const request = { token: scene.pending!.token, ordinal: scene.pending!.ordinal };
+    void Promise.resolve().then(() => sharedTexture.sendSharedTexture(
+      { frame: encoding.webContents.mainFrame, importedSharedTexture: imported }, request))
+      .catch(fail).finally(() => {
+        imported.release(); transferring = false; processTexture();
+      }).catch(fail);
   }
   const observed = (event: IpcMainEvent, token: number, accepted: boolean) => {
     if (!trusted(event) || closing) return;
@@ -88,7 +100,7 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
       scene.latest?.release(); scene.latest = undefined;
       pending.resolve();
     }
-    processTexture(scene);
+    processTexture();
   };
   const captureError = (event: IpcMainEvent, error: string) => { if (trusted(event)) fail(new Error(error)); };
   ipcMain.on("hypit-observed", observed);
@@ -162,7 +174,7 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
         if (texture === undefined) return;
         if (closing || texture.textureInfo.widgetType !== "frame") { texture.release(); return; }
         scene.latest?.release(); scene.latest = texture;
-        processTexture(scene);
+        processTexture();
       });
       const sameRenderer = () => {
         const top = window.webContents.mainFrame;
@@ -207,7 +219,7 @@ export async function createGpuCapture(input: CaptureInput, origin: string,
           let repaint: ReturnType<typeof setInterval> | undefined;
           try {
             await child.executeJavaScript(`parent.__hypitCaptureCommit(${token})`);
-            processTexture(scene);
+            processTexture();
             repaint = setInterval(() => {
               if (!closing && !scene.busy && scene.pending?.token === token) {
                 void child.executeJavaScript(`parent.__hypitCaptureCommit(${token})`).catch(fail);
