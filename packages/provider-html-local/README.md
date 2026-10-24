@@ -58,9 +58,12 @@ preparation installs both managed Chrome and Electron as needed; probes inspect
 the selected installations. Electron archives are verified against the release
 checksums shipped in the Provider manifest and extracted into a staging directory
 before installation. Repeated preparation reuses healthy installations.
+On macOS, preparation sets `LSUIElement=true` and applies and verifies a local
+ad-hoc signature so the renderer starts as a background application.
 
 `electronPath` selects a user-managed executable with the same pinned version and
 is mutually exclusive with managed Electron cache and download configuration.
+On macOS this executable must belong to a background app with `LSUIElement=true`.
 Relative configured paths resolve against the Runtime data root. The default
 Electron cache is `~/.cache/hypit/html-rasterizer/electron`.
 

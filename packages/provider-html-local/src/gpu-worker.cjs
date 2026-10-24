@@ -1,6 +1,7 @@
 const { app } = require("electron");
 const path = require("node:path");
 
+if (process.platform === "darwin") app.setActivationPolicy("accessory");
 app.setPath("userData", path.join(process.argv[2], "electron"));
 app.on("window-all-closed", () => {});
 app.commandLine.appendSwitch("disable-frame-rate-limit");
@@ -15,7 +16,6 @@ const pending = [];
 const queue = value => pending.push(value);
 process.on("message", queue);
 app.whenReady().then(async () => {
-  app.dock?.hide();
   const { register } = await import("tsx/esm/api");
   register();
   await import(process.argv[3]);

@@ -72,10 +72,18 @@ export async function requireElectronExecutable(path: string): Promise<void> {
   try {
     if (!(await stat(path)).isFile()) throw new Error("Electron path is not a file");
     await access(path, process.platform === "win32" ? constants.F_OK : constants.X_OK);
-    const { stdout } = await promisify(execFile)(path, ["--version"], {
-      timeout: 15_000, windowsHide: true, env: electronEnvironment(),
+    const { stdout } = await promisify(execFile)(path, ["-p", "process.versions.electron"], {
+      timeout: 15_000, windowsHide: true, env: { ...electronEnvironment(), ELECTRON_RUN_AS_NODE: "1" },
     });
-    if (stdout.trim() !== `v${release.version}`) throw new Error(`Expected Electron ${release.version}, received ${stdout.trim()}`);
+    if (stdout.trim() !== release.version) throw new Error(`Expected Electron ${release.version}, received ${stdout.trim()}`);
+    if (process.platform === "darwin") {
+      const { stdout: agent } = await promisify(execFile)("/usr/bin/plutil", [
+        "-extract", "LSUIElement", "raw", "-expect", "bool", "-o", "-", join(dirname(dirname(path)), "Info.plist"),
+      ], { timeout: 15_000 }).catch(() => {
+        throw new Error('macOS Electron must be a background app with LSUIElement=true; use renderer "electron" for managed preparation, or select a prepared background app');
+      });
+      if (agent.trim() !== "true") throw new Error("macOS Electron requires LSUIElement=true");
+    }
   } catch (error) {
     throw new Error(`HTML renderer Electron is unavailable at ${path}: ${error instanceof Error ? error.message : String(error)}. Prepare the selected Runtime with hypit runtime up --runtime <profile>, or correct its electronPath.`);
   }
@@ -109,6 +117,14 @@ export async function installHtmlElectron(cacheDir: string, downloadBaseUrl?: st
         } },
       });
       await extract(archive, { dir: stage });
+      if (process.platform === "darwin") {
+        const bundle = join(stage, "Electron.app");
+        // Launch Services reads this before Electron can execute the worker script.
+        await promisify(execFile)("/usr/bin/plutil", ["-insert", "LSUIElement", "-bool", "YES", join(bundle, "Contents", "Info.plist")]);
+        await promisify(execFile)("/usr/bin/codesign", ["--force", "--deep", "--sign", "-",
+          "--preserve-metadata=identifier,entitlements,flags,runtime", bundle], { timeout: 60_000 });
+        await promisify(execFile)("/usr/bin/codesign", ["--verify", "--deep", "--strict", bundle], { timeout: 60_000 });
+      }
       await requireElectronExecutable(join(stage, executableRelativePath()));
       await rm(directory, { recursive: true, force: true });
       await rename(stage, directory);
