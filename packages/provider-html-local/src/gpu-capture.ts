@@ -17,7 +17,9 @@ export async function gpuCapturePages({ width, height }: { width: number; height
   const encoder = `/__hypit_encoder_${randomUUID()}.html`;
   const decoder = `/__hypit_decoder_${randomUUID()}.mjs`;
   const video = `/__hypit_video_${randomUUID()}.mjs`;
-  const bundle = await readFile(new URL("../../bundles/mediabunny.min.mjs", import.meta.resolve("mediabunny")), "utf8");
+  const bundle = await readFile(import.meta.url.endsWith(".ts")
+    ? new URL("../../bundles/mediabunny.min.mjs", import.meta.resolve("mediabunny"))
+    : new URL("../browser/mediabunny/dist/bundles/mediabunny.min.mjs", import.meta.url), "utf8");
   const videoModule = await readFile(new URL("../src/browser-video.mjs", import.meta.url), "utf8");
   const html = `<!doctype html><meta charset="utf-8"><style>
 html,body{margin:0;background:#000;overflow:hidden}

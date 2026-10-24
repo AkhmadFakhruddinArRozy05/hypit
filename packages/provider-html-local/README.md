@@ -12,7 +12,7 @@ It supports two video export configurations:
 | Configuration | Source video | Capture and encoding |
 | --- | --- | --- |
 | `chromePath`, or managed Chrome selection | Bounded FFmpeg PNG decode store | Puppeteer PNG capture and ordered FFmpeg H.264 encoding |
-| `electronPath` | Mediabunny demuxing, WebCodecs decoding, Canvas video layers | Electron shared GPU textures, Canvas cropping, WebCodecs H.264 encoding, FFmpeg MP4 muxing |
+| `renderer: "electron"`, or `electronPath` | Mediabunny demuxing, WebCodecs decoding, Canvas video layers | Electron shared GPU textures, Canvas cropping, WebCodecs H.264 encoding, FFmpeg MP4 muxing |
 
 PNG frame requests use the selected Chrome browser. Filesystem staging, source
 probing and decoded-frame leases belong to this Provider.
@@ -26,7 +26,10 @@ The Endpoint facet is `rasterize`. Runtime configuration owns execution policy:
 - `defaultConcurrency`: whole requests admitted in this Endpoint pool;
 - `browserCapacity`: worker slots reserved across admitted requests;
 - `chromePath`, or exact `browserVersion` plus `browserCacheDirectory`;
-- `electronPath`: an installed Electron 45+ distribution executable, enabling GPU video export;
+- `renderer`: `chromium` (default) or `electron` for GPU video export;
+- `electronPath`: a user-managed Electron executable, selecting the Electron renderer;
+- `electronCacheDirectory`: managed Electron installation and archive cache directory;
+- `electronDownloadBaseUrl`: optional Electron release archive base URL;
 - `ffmpegPath` and `ffprobePath`;
 - optional process/stage deadlines and byte budgets.
 
@@ -50,19 +53,31 @@ hypit programs prepare --runtime ./hypit.runtime.json --endpoint html.local
 
 `chromePath` selects a user-managed Chrome executable; `browserVersion` selects
 one exact managed Chrome for Testing version. These selections are mutually
-exclusive. `electronPath` is configured separately and is checked during Runtime
-inspection. Relative executable paths in Runtime configuration resolve against
-the Runtime data root.
+exclusive. `renderer: "electron"` selects the Provider's pinned Electron release. Runtime
+preparation installs both managed Chrome and Electron as needed; probes inspect
+the selected installations. Electron archives are verified against the release
+checksums shipped in the Provider manifest and extracted into a staging directory
+before installation. Repeated preparation reuses healthy installations.
+
+`electronPath` selects a user-managed executable with the same pinned version and
+is mutually exclusive with managed Electron cache and download configuration.
+Relative configured paths resolve against the Runtime data root. The default
+Electron cache is `~/.cache/hypit/html-rasterizer/electron`.
 
 Example `html.local` Endpoint configuration:
 
 ```json
 {
-  "electronPath": "/absolute/path/to/electron",
+  "renderer": "electron",
   "workers": "auto",
   "quality": "standard"
 }
 ```
+
+The current pinned Electron release is 45.0.0. Custom download bases use
+`<base>/v45.0.0/electron-v45.0.0-<platform>-<arch>.zip` and must serve the official
+archive bytes. A failed download leaves the selected installation unavailable
+until preparation succeeds.
 
 On macOS the executable is inside `Electron.app/Contents/MacOS/Electron`; on
 Windows it is `electron.exe`; on Linux it is `electron`. Electron's shared-texture
@@ -90,7 +105,9 @@ source decoding; more workers can reduce throughput for video-heavy projects.
 
 Source color tags are preserved. Untagged SDR uses a BT.601 matrix and sRGB
 transfer. Planar alpha samples retain source color metadata through an in-memory
-copy before Canvas composition. Mediabunny 1.62.1 is distributed under
+copy before Canvas composition. The published Provider includes the Mediabunny
+1.62.1 browser bundle, original source and license under `browser/mediabunny/`.
+Mediabunny is distributed under
 [MPL-2.0](https://github.com/Vanilagy/mediabunny/blob/main/LICENSE).
 
 The GPU path renders each Program in a fixed-size same-origin iframe. A separate
@@ -144,7 +161,7 @@ import { rasterizeHtmlProgram } from "@hypit/provider-html-local";
 
 const visual = await rasterizeHtmlProgram(
   { program, range: { startFrame: 240, endFrameExclusive: 360 } },
-  { resources, electronPath: "/absolute/path/to/electron", workers: "auto" },
+  { resources, renderer: "electron", workers: "auto" },
 );
 ```
 

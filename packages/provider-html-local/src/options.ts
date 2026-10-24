@@ -2,9 +2,7 @@ export type HtmlWorkers = number | "auto";
 export type HtmlQuality = "draft" | "standard" | "high";
 export type HtmlBrowserGpu = "auto" | "software" | "hardware";
 
-export type HtmlExecutionOptions = import("./browser.js").BrowserOptions & {
-  /** Electron 45+ executable for shared-texture video export. PNG requests use Chrome. */
-  readonly electronPath?: string;
+export type HtmlExecutionOptions = import("./browser.js").BrowserOptions & import("./electron.js").ElectronOptions & {
   readonly ffprobePath?: string;
   /** FFmpeg command for source extraction, PNG video encoding and GPU stream muxing. */
   readonly ffmpegPath?: string;
@@ -21,9 +19,9 @@ export type HtmlExecutionOptions = import("./browser.js").BrowserOptions & {
   readonly maxProcessOutputBytes?: number;
   /** Artifact staging lifecycles in flight inside one render. */
   readonly artifactStagingConcurrency?: number;
-  /** Pending PNG bytes, or compressed bytes awaiting writes during GPU export. */
+  /** Admission budget for pending PNGs, or GPU snapshots and compressed output. */
   readonly maxPendingFrameBytes?: number;
-  /** Bytes of decoded source PNGs resident in one render's reusable working set. */
+  /** Retained decoded source samples across the render's workers. */
   readonly maxDecodedSourceBytes?: number;
   readonly maxRenderedBytes?: number;
 };

@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { EndpointInvocationContext } from "@hypit/hypit/endpoint";
 import { sealTimelineVisual } from "@hypit/media";
 import type { MediaFrameRange, TimelineVisual } from "@hypit/media";
@@ -17,7 +17,7 @@ import { autoWorkerLimit, renderWorkerLimit } from "./concurrency.js";
 import { requestedFrameRanges } from "./sampling.js";
 import { browserCacheDirectory, browserExecutablePath, configuredBrowserPath, requireBrowserExecutable, selectedBrowserVersion } from "./browser.js";
 import { htmlArtifactRelativePath, stageHtmlProgram } from "./stage.js";
-import { requireElectronExecutable } from "./electron.js";
+import { electronExecutablePath, requireElectronExecutable } from "./electron.js";
 
 export type HtmlRasterProgress =
   | { readonly phase: "staging" | "encoding" | "storing"; readonly elapsedMs: number }
@@ -45,10 +45,10 @@ export function resolveExecutionOptions(options: HtmlExecutionOptions) {
   assert(["draft", "standard", "high"].includes(quality), "HTML renderer quality is invalid");
   const browserGpu = options.browserGpu ?? "hardware";
   assert(["auto", "software", "hardware"].includes(browserGpu), "HTML renderer browserGpu is invalid");
-  assert(options.electronPath === undefined || options.electronPath.trim().length > 0, "HTML renderer electronPath must not be empty");
-  assert(options.electronPath === undefined || browserGpu !== "software", "Shared-texture export requires browserGpu auto or hardware");
+  const electronPath = electronExecutablePath(options);
+  assert(electronPath === undefined || browserGpu !== "software", "Shared-texture export requires browserGpu auto or hardware");
   return {
-    electronPath: options.electronPath === undefined ? undefined : resolve(options.electronPath),
+    electronPath,
     chromePath: configuredBrowserPath(options),
     browserVersion: selectedBrowserVersion(options),
     browserCacheDirectory: browserCacheDirectory(options),
