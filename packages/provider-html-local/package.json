@@ -9,6 +9,8 @@
   },
   "files": [
     "dist",
+    "src/gpu-worker.cjs",
+    "src/gpu-encoder.cjs",
     "README.md"
   ],
   "hypit": {
@@ -43,6 +45,7 @@
     "@hypit/script": "workspace:*",
     "@hypit/timeline": "workspace:*",
     "@hypit/visual-track": "workspace:*",
+    "electron": "45.0.0",
     "sharp": "0.35.4"
   }
 }

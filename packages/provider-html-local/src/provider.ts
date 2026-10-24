@@ -16,7 +16,7 @@ export type CreateLocalHtmlProviderOptions = HtmlExecutionOptions & {
   readonly nodePath?: string;
   /** Whole render requests admitted concurrently; independent of frame workers. */
   readonly defaultConcurrency?: number;
-  /** Shared Chrome slots across Need executions using this pool. */
+  /** Shared capture worker slots across Need executions using this pool. */
   readonly browserCapacity?: number;
 };
 

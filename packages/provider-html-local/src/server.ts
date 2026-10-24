@@ -11,11 +11,15 @@ const mediaTypes: Readonly<Record<string, string>> = {
 };
 
 /** Serve one staged program and its lazily decoded frames to local capture pages. */
-export async function serveHtmlProgram(root: string): Promise<{ readonly url: string; close(): Promise<void> }> {
+export async function serveHtmlProgram(root: string, pages: ReadonlyMap<string, string> = new Map()): Promise<{ readonly url: string; close(): Promise<void> }> {
   const base = resolve(root);
   const server = createServer(async (request, response) => {
     try {
       const pathname = decodeURIComponent(new URL(request.url ?? "/", "http://127.0.0.1").pathname);
+      const page = pages.get(pathname);
+      if (page !== undefined) {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(page); return;
+      }
       const path = resolve(base, pathname === "/" ? "index.html" : `.${pathname}`);
       if (path !== base && !path.startsWith(`${base}${sep}`)) {
         response.writeHead(403).end(); return;
@@ -34,7 +38,9 @@ export async function serveHtmlProgram(root: string): Promise<{ readonly url: st
         "Accept-Ranges": "bytes",
         ...(range === null ? {} : { "Content-Range": `bytes ${start}-${end}/${info.size}` }),
       });
-      createReadStream(path, { start, end }).on("error", () => response.destroy()).pipe(response);
+      const stream = createReadStream(path, { start, end });
+      response.once("close", () => stream.destroy());
+      stream.on("error", () => response.destroy()).pipe(response);
     } catch (error) {
       response.writeHead((error as NodeJS.ErrnoException).code === "ENOENT" ? 404 : 500).end();
     }
@@ -47,6 +53,10 @@ export async function serveHtmlProgram(root: string): Promise<{ readonly url: st
   if (address === null || typeof address === "string") throw new Error("HTML Program server did not bind a TCP port");
   return {
     url: `http://127.0.0.1:${address.port}/`,
-    close: () => new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())),
+    close: () => new Promise<void>((resolveClose, reject) => {
+      server.close(error => error ? reject(error) : resolveClose());
+      // Capture has finished; browser media requests can still hold keep-alive sockets.
+      server.closeAllConnections();
+    }),
   };
 }

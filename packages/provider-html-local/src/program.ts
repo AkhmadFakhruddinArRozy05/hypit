@@ -5,6 +5,7 @@ import type { ManagedProgram, ManagedProgramState } from "@hypit/runtime-local/e
 import { browserCacheDirectory, browserDownloadBaseUrl, browserDownloadUrl, browserExecutablePath, configuredBrowserPath, requireBrowserExecutable, selectedBrowserVersion } from "./browser.js";
 import type { BrowserOptions } from "./browser.js";
 import { runProcess } from "./process.js";
+import { requireElectronExecutable } from "./electron.js";
 
 type MediaToolVersion =
   | { readonly state: "ready"; readonly version: string }
@@ -47,6 +48,7 @@ export function localHtmlBrowserProgram(
     readonly nodePath: string;
     readonly ffprobePath: string;
     readonly ffmpegPath?: string;
+    readonly electronPath?: string;
   },
 ): ManagedProgram {
   const version = selectedBrowserVersion(input);
@@ -72,6 +74,10 @@ export function localHtmlBrowserProgram(
       },
     } : {}),
     async probe(): Promise<ManagedProgramState> {
+      if (input.electronPath !== undefined) {
+        try { await requireElectronExecutable(input.electronPath); }
+        catch (error) { return { state: "down", detail: error instanceof Error ? error.message : String(error) }; }
+      }
       const browser = await probeBrowser();
       if (browser.state !== "ready") return browser;
       return await probeHtmlMediaTools(input.ffprobePath, input.ffmpegPath);

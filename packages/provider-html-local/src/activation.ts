@@ -22,7 +22,7 @@ const localHTMLRuntimeAdapter = createRuntimeEndpointAdapterFacet({
     if (context.pool === undefined) throw new Error("local HTML renderer Provider Pool is required");
     const config = runtimeConfigObject(context.config, "local HTML renderer");
     runtimeConfigExact(config, [
-      "nodePath", "chromePath", "browserVersion", "browserCacheDirectory", "browserDownloadBaseUrl", "ffprobePath", "ffmpegPath", "workers", "maxWorkers", "quality", "browserGpu",
+      "nodePath", "chromePath", "electronPath", "browserVersion", "browserCacheDirectory", "browserDownloadBaseUrl", "ffprobePath", "ffmpegPath", "workers", "maxWorkers", "quality", "browserGpu",
       "defaultConcurrency", "browserCapacity", "initializationTimeoutMs", "frameTimeoutMs", "processTimeoutMs", "maxProcessOutputBytes", "artifactStagingConcurrency", "maxPendingFrameBytes", "maxDecodedSourceBytes", "maxRenderedBytes",
     ], "local HTML renderer");
     runtimeConfigString(config.nodePath, "HTML renderer nodePath");
@@ -41,6 +41,8 @@ const localHTMLRuntimeAdapter = createRuntimeEndpointAdapterFacet({
     }
     const configuredNode = runtimeConfigString(config.nodePath, "HTML renderer nodePath");
     const configuredChrome = runtimeConfigString(config.chromePath, "HTML renderer chromePath");
+    const configuredElectron = runtimeConfigString(config.electronPath, "HTML renderer electronPath");
+    const electronPath = configuredElectron === undefined ? undefined : resolve(context.dataRoot, configuredElectron);
     const browserVersion = runtimeConfigString(config.browserVersion, "HTML renderer browserVersion");
     const browserDownloadBaseUrl = runtimeConfigString(config.browserDownloadBaseUrl, "HTML renderer browserDownloadBaseUrl");
     const configuredCache = runtimeConfigString(config.browserCacheDirectory, "HTML renderer browserCacheDirectory");
@@ -48,6 +50,7 @@ const localHTMLRuntimeAdapter = createRuntimeEndpointAdapterFacet({
       chromePath: resolve(context.dataRoot, configuredChrome),
     }) });
     const browser = {
+      ...(electronPath === undefined ? {} : { electronPath }),
       ...(browserVersion === undefined ? {} : { browserVersion }),
       ...(browserDownloadBaseUrl === undefined ? {} : { browserDownloadBaseUrl }),
       ...(chromePath === undefined ? {} : { chromePath }),
@@ -100,6 +103,8 @@ const localHTMLRuntimeAdapter = createRuntimeEndpointAdapterFacet({
         ffmpegPath,
       }),
       diagnose: async () => [
+        ...(electronPath === undefined ? [] : [{ severity: "info" as const, code: "HTML_GPU_EXPORT", subject: context.instance,
+          message: `Shared-texture video export using Electron: ${electronPath}` }]),
         { severity: "info", code: "HTML_BROWSER_SELECTION", subject: context.instance,
           message: `${chromePath === undefined ? `Managed Chrome Headless Shell ${selectedBrowserVersion(browser)} (${browserVersion === undefined ? "Provider recommendation" : "Profile version"})` : "Profile browser"}: ${browserExecutablePath(browser)}` },
         ...await diagnoseRuntimeExecutable({ root: context.dataRoot, configured: configuredFfmpeg, fallback: "ffmpeg", subject: "FFmpeg" }),
