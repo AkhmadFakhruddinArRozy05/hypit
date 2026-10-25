@@ -390,6 +390,9 @@ function transitionOffsets(start: number, frames: number, kind: FineCaptionOneSh
 }
 
 function cueAnimation(parameters: FineCaptionParameters, durationFrames: number): VisualAnimation | undefined {
+  if (parameters.motion.cueEnter === "none" && parameters.motion.cueExit === "none") {
+    return undefined;
+  }
   const enterFrames = parameters.motion.cueEnter === "none"
     ? 0 : Math.min(parameters.motion.cueEnterFrames, Math.floor(durationFrames / 2));
   const exitFrames = parameters.motion.cueExit === "none"

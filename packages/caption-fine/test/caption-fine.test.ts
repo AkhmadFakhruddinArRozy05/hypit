@@ -578,3 +578,38 @@ test("Fine uses author separators in ordinary text, shared groups, active copies
   const joined = render("3D");
   assert.equal(joined.some(element => element.style.some(style => (style.name === "column-gap" || style.name === "margin-left") && style.value !== "0px")), false);
 });
+
+test("Fine Cue attaches zero animations when cue-enter and cue-exit are none (instant cut)", () => {
+  const { program, projection } = fixture();
+  const { "max-lines": _lines, "max-words-per-line": _words, ...flow } = recipe.properties;
+  const style = fineCaptionStyle("plain", {
+    ...recipe,
+    properties: {
+      ...flow,
+      "cue-enter": "none",
+      "cue-exit": "none",
+      handoff: "cut",
+    },
+  }, [font]);
+  const styled = { ...program, styles: [style] };
+  const document = captionDocument(parseScript("instant", "<line>Zero lag subtitle</line>"), "story.caption", "story");
+  const timed: CaptionTiming = {
+    ...projection,
+    units: document.units.map((unit, index) => ({
+      unitId: unit.id,
+      startFrame: 10 + index * 5,
+      endFrameExclusive: 15 + index * 5,
+    })),
+  };
+  const visual = renderCaption(
+    scheduleFineCaption(timed, styled, document),
+    styled,
+    document,
+    sealTimeline({ id: "test-space", frameCount: 90, frameRate: { numerator: 30, denominator: 1 } }),
+  );
+  const cueMotionBox = visual.presents[0]!.elements.find((el) => el.id === "cue-motion");
+  assert.ok(cueMotionBox, "cue-motion element exists");
+  assert.equal((cueMotionBox as any).animation, undefined, "cue-motion must have no attached animation for instant cut");
+});
+
+

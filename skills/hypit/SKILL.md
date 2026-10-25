@@ -1,6 +1,6 @@
 ---
 name: hypit
-description: Direct and produce videos with Hypit, primarily through generated media and authored components while incorporating briefs, references or supplied material; includes SVML/SVS/SVRun authoring and Runtime or credential setup.
+description: "Use when directing and producing videos with Hypit, primarily through generated media and authored components while incorporating briefs, references or supplied material; includes SVML/SVS/SVRun authoring and Runtime or credential setup."
 ---
 
 # Hypit
